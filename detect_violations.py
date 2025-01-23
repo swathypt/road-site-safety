@@ -8,7 +8,7 @@ import cv2
 from PIL import Image
 import io
 import time
-
+import sqlite3
 
 # Load API key from environment variable
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -16,7 +16,28 @@ openai.api_key = OPENAI_API_KEY
 
 # Define the image folder path
 IMAGE_FOLDER = "images"
+DB_FILE = "site_violations.db"
 
+# ------------------- DATABASE SETUP -------------------
+def get_db_connection():
+    """Connects to SQLite and ensures the table exists."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Violations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        Timestamp TEXT NOT NULL,
+        Location_ID TEXT NOT NULL,
+        Image_Reference TEXT NOT NULL,
+        Violation_Type TEXT NOT NULL,
+        Risk_Level TEXT NOT NULL
+    );
+    """)
+    conn.commit()
+    return conn, cursor
+
+
+# ------------------- IMAGE PROCESSING -------------------
 def is_valid_image(file_path):
     """Check if the file is a valid image."""
     try:
@@ -45,13 +66,23 @@ def process_image(image_path):
         print(f"Error processing {image_path}: {e}")
         return None
 
+# ------------------- AI ANALYSIS -------------------
 def analyze_image(image_path):
-    """Analyze image with OpenAI API and return structured JSON output."""
+    """Analyzes an image using OpenAI's API and stores violations in SQLite."""
     try:
         base64_image = process_image(image_path)
         if not base64_image:
             return {"error": "Invalid image"}
 
+        # Define Prompt Segments
+        worker_detection = """
+        - Detect **all workers** in the image with a confidence score threshold of **≥ 0.7**.
+        - Ignore **pedestrians, mannequins, shadows, and reflections**.
+		- Do **not** assume all workers are wearing the correct gear unless clearly visible.
+        - Return **ALL** workers detected, even if safety status is uncertain.
+        - Exclude **distant workers** below 2 percentage of the image width/height.
+        """
+        
         # **Hardhat Detection Rules**
         hardhat_spec = """
         - Detect **hardhats** in **white, yellow, or orange**, using predefined RGB/HSV color ranges.
@@ -62,7 +93,7 @@ def analyze_image(image_path):
         - If **confidence < 0.7**, classify as **"absent"**.
         """
 
-        # 🔹 **Hi-Vis Vest Detection Rules**
+        # **Hi-Vis Vest Detection Rules**
         hi_vis_spec = """
         - Detect **hi-vis vests** in **yellow or orange**, using predefined RGB/HSV color ranges.
         - Vest must be **actively worn**, not draped over the shoulder.
@@ -74,13 +105,7 @@ def analyze_image(image_path):
         
         Analyze this construction site image and return a strict JSON response:
 
-        ### Workers Detection:
-        - Detect **all workers** in the image with a confidence score threshold of **≥ 0.7**.
-        - Ignore **pedestrians, mannequins, shadows, and reflections**.
-		- Do **not** assume all workers are wearing the correct gear unless clearly visible.
-        - Return **ALL** workers detected, even if safety status is uncertain.
-        - Exclude **distant workers** below 2 percentage of the image width/height.
-
+        Detect Workers based on {worker_detection}      
         Detect hardhat status based on {hardhat_spec}
         Detect Hi-vis status based on {hi_vis_spec}
 
@@ -120,7 +145,10 @@ def analyze_image(image_path):
                 {"role": "system", "content": "You analyze worker safety compliance in images and return structured JSON."},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    {"type": "image_url", 
+                     "image_url": {
+                         "url": f"data:image/jpeg;base64,{base64_image}"
+                         }}
                 ]}
             ],
             max_tokens=400
@@ -137,9 +165,27 @@ def analyze_image(image_path):
             # Ensure correct image_id and timestamp
             parsed_json["image_id"] = os.path.basename(image_path)
 
-            # If timestamp is missing, set to "unknown"
+            # If timestamp is missing, set to "unavailable"
             if "timestamp" not in parsed_json or parsed_json["timestamp"] == "":
-                parsed_json["timestamp"] = "unknown"
+                parsed_json["timestamp"] = "unavailable"
+
+            # ------------------- STORE RESULTS IN DATABASE -------------------
+            conn, cursor = get_db_connection()
+
+            for worker in parsed_json.get("violations", []):
+                cursor.execute("""
+                INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Violation_Type, Risk_Level)
+                VALUES (?, ?, ?, ?, ?)
+                """, (
+                    parsed_json["timestamp"],
+                    "SITE_UNKNOWN",  # Placeholder, can be replaced with real site data
+                    parsed_json["image_id"],
+                    worker["reason"],
+                    worker["risk_level"]
+                ))
+
+            conn.commit()
+            conn.close()
 
             return parsed_json
         else:
@@ -149,7 +195,7 @@ def analyze_image(image_path):
         print(f"Error processing {image_path}: {e}")
         return {"error": str(e)}
 
-# Process images one by one and print results immediately
+# ------------------- PROCESS IMAGES -------------------
 if __name__ == "__main__":
     image_files = [f for f in glob.glob(os.path.join(IMAGE_FOLDER, "*.*")) if is_valid_image(f)]
 
