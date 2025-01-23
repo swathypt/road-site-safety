@@ -1,0 +1,74 @@
+/* General Styling */
+body {
+  background-color: #f4f6f9;
+  font-family: "Arial", sans-serif;
+}
+
+/* Dashboard Title - Center & Bigger */
+.dashboard-title {
+  text-align: center;
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #343a40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* Main Title */
+h1 {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #343a40;
+}
+
+/* Tabs - Ensure they sit side by side */
+.nav-container {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.nav-pills .nav-link {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #007bff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+.nav-pills .nav-link.active {
+  background-color: #007bff;
+  color: white;
+}
+
+/* Data Table */
+.table th, .table td {
+  padding: 12px;
+  vertical-align: middle;
+}
+.table-dark th {
+  background-color: #343a40;
+  color: white;
+}
+.risk-level.compliant {
+  color: #28a745;
+  font-weight: bold;
+}
+.risk-level.medium {
+  color: #ffc107;
+  font-weight: bold;
+}
+.risk-level.high {
+  color: #dc3545;
+  font-weight: bold;
+}
+
+/* Summary Section */
+.summary-section {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 20px;
+}
