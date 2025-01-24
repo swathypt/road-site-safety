@@ -18,36 +18,36 @@ openai.api_key = OPENAI_API_KEY
 IMAGE_FOLDER = "images"
 DB_FILE = "site_violations.db"
 
+
 # ------------------- DATABASE SETUP -------------------
 def get_db_connection():
     """Connects to SQLite and ensures the tables exist."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # Table to track image locations
+    # Table for violations (store location details)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS Images (
-        Location_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-        Image_Reference TEXT UNIQUE NOT NULL
+    CREATE TABLE IF NOT EXISTS Violations (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Timestamp TEXT,
+        Location_ID INTEGER,
+        Image_Reference TEXT,
+        Location_Details TEXT,  -- NEW COLUMN to store location info
+        Violation_Type TEXT,
+        Risk_Level TEXT
     );
     """)
 
-    # Table for violations
+    # Table to track unique locations
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS Violations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        Timestamp TEXT NOT NULL,
-        Location_ID INTEGER NOT NULL,
-        Violation_Type TEXT NOT NULL,
-        Risk_Level TEXT NOT NULL,
-        FOREIGN KEY (Location_ID) REFERENCES Images(Location_ID)
+    CREATE TABLE IF NOT EXISTS Locations (
+        Location_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Image_Reference TEXT UNIQUE
     );
     """)
 
     conn.commit()
-    return conn, cursor  # ✅ Ensure both connection and cursor are returned
-
-
+    return conn, cursor
 
 # ------------------- IMAGE PROCESSING -------------------
 def is_valid_image(file_path):
@@ -63,204 +63,237 @@ def process_image(image_path):
     """Load, resize while maintaining aspect ratio, and convert an image to Base64."""
     try:
         with Image.open(image_path).convert("RGB") as img:
-            # Keep aspect ratio while resizing (limit the largest dimension to 2048px for better accuracy)
-            max_size = 2048
-            img = img.resize((max_size, max_size), Image.LANCZOS)   
+            max_size = 2048  # Limit largest dimension to 2048px for accuracy
+            img.thumbnail((max_size, max_size), Image.LANCZOS)   
 
             # Save to an in-memory buffer instead of a file
             img_buffer = io.BytesIO()
-            img.save(img_buffer, format="JPEG", quality=90)  # Higher quality to retain details
+            img.save(img_buffer, format="JPEG", quality=90)  
             img_bytes = img_buffer.getvalue()
 
-            # Convert to Base64
             return base64.b64encode(img_bytes).decode("utf-8")
     except Exception as e:
         print(f"Error processing {image_path}: {e}")
         return None
 
-# ------------------- AI ANALYSIS -------------------
-def analyze_images(image_paths):
-    """Analyzes multiple images using OpenAI API and stores violations in SQLite."""
+def parse_json_responses(response_text, image_paths):
+    """Parses JSON responses from OpenAI and maps results to actual filenames."""
+    clean_response = re.sub(r"```json\n|\n```", "", response_text).strip()
+    json_objects = re.split(r'\njson\n', clean_response)
+
+    results = {}
+
     try:
-        processed_images = []
-        
-        for image_path in image_paths:
-            base64_image = process_image(image_path)
-            if base64_image:
-                processed_images.append({
-                    "filename": os.path.basename(image_path),
-                    "base64": base64_image
-                })
-        ######################################TESTING############################################        
-        print(f"📸 Sending {len(processed_images)} images to OpenAI...")
-        # Ensure all images are being processed
-        for img in processed_images:
-            print(f"🔹 Image included in request: {img['filename']}")
+        for image_path, obj_str in zip(image_paths, json_objects):  # Match each JSON with an image
+            try:
+                parsed_data = json.loads(obj_str)  # Ensure correct JSON format
 
-        if not processed_images:
-            return {"error": "No valid images"}
+                # If OpenAI response is a list of JSON objects instead of a single dictionary
+                if isinstance(parsed_data, list):  
+                    merged_data = {"image_id": os.path.basename(image_path), "violations": []}
 
-        # Define Prompt Segments
-        worker_detection = """
-        - Detect **all workers** in the image with a confidence score threshold of **≥ 0.7**.
-        - Ignore **pedestrians, mannequins, shadows, and reflections**.
-		- Do **not** assume all workers are wearing the correct gear unless clearly visible.
-        - Return **ALL** workers detected, even if safety status is uncertain.
-        - Exclude **distant workers** below 2 percentage of the image width/height.
-        """
-        
-        # **Hardhat Detection Rules**
-        hardhat_spec = """
-        - Detect **hardhats** in **white, yellow, or orange**, using predefined RGB/HSV color ranges.
-        - Do **not** count **soft hats, beanies, monkey caps, or winter caps** as hardhats.
-        - Hardhat must be **rigid and worn on the head**.
-        - If a worker is **holding** a hardhat instead of wearing it, classify as **"absent"**.
-        - If a hardhat placed on floor instead of wearing it, classify as **"absent"**.
-        - If **confidence < 0.7**, classify as **"absent"**.
-        """
+                    # Extract data from each JSON object in the list
+                    for obj in parsed_data:
+                        merged_data["timestamp"] = obj.get("timestamp", "unknown")
+                        merged_data["location_details"] = obj.get("Location details", "unavailable")
 
-        # **Hi-Vis Vest Detection Rules**
-        hi_vis_spec = """
-        - Detect **hi-vis vests** in **yellow or orange**, using predefined RGB/HSV color ranges.
-        - Vest must be **actively worn**, not draped over the shoulder.
-        - If **confidence < 0.7**, classify as **"absent"**.
-        - Avoid misclassifying **traffic cones or other objects similar to vest color** as hi-vis vests.
-        """
+                        if "violations" in obj and isinstance(obj["violations"], list):
+                            merged_data["violations"].extend(obj["violations"])  # Merge violations
 
-        prompt = """
-        
-        Analyze this construction site image and return a strict JSON response:
+                    results[merged_data["image_id"]] = merged_data  # Store in results dictionary
 
-        Detect Workers based on {worker_detection}      
-        Detect hardhat status based on {hardhat_spec}
-        Detect Hi-vis status based on {hi_vis_spec}
+                elif isinstance(parsed_data, dict):  # Standard single JSON object
+                    actual_filename = os.path.basename(image_path)  
+                    parsed_data["image_id"] = actual_filename  # Overwrite OpenAI's image_id
+                    results[actual_filename] = parsed_data  # Store results under actual filename
 
-        ### Compliance Classification:
-        - `"high"` → No hardhat AND no vest.
-        - `"medium"` → Either hardhat OR vest missing.
-        - `"compliant"` → Both hardhat AND vest present.
-        - `"unknown"` → Unable to determine safety gear due to occlusion or poor visibility.
-        - Provide **bounding box coordinates** for each worker in **normalized format (0-1 scale)**.
-        - Extract **timestamp** from the image if present (formatted as `"YYYY-MM-DDTHH:MM:SSZ"`). If missing, return `"timestamp": "unknown"`.
+                else:
+                    print(f"⚠️ Unexpected JSON format for {image_path}: {parsed_data}")
+                    continue  # Skip malformed responses
 
-        ### Strict JSON Output Format:
-        ```json
-        {
-          "image_id": "<image_filename>",
-          "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
-          "violations": [
-            {
-              "worker_id": 1,
-              "risk_level": "high",
-              "reason": "Worker without hardhat and hi-vis vest",
-              "location": {"x": 0.25, "y": 0.40, "width": 0.1, "height": 0.2},
-              "confidence": 0.95
-            }
-          ]
-        }
-        ```"""
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON Parsing Error for {image_path}: {e}")
+                continue  # Skip errors and continue processing
 
-        # Send Batch Request to OpenAI
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You analyze worker safety compliance in images."},
-                {"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    *[
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}} 
-                        for img in processed_images
-                    ]
-                ]}
-            ],
-            max_tokens=800
-        )
-
-        # Extract JSON response safely
-        response_text = response.choices[0].message.content
-        print("🔍 OpenAI Raw Response:", response_text)  # ✅ Debugging Step
-
-        try:
-            # ✅ Remove markdown formatting (```json ... ```) before extracting JSON
-            clean_response = re.sub(r"```json\n|\n```", "", response_text).strip()
-
-            # ✅ Extract multiple JSON objects separately
-            json_objects = re.findall(r"\{.*?\}", clean_response, re.DOTALL)
-
-            # ✅ Convert extracted JSON strings into Python dictionaries
-            parsed_json_list = [json.loads(obj) for obj in json_objects]
-
-            # ✅ Merge results into a structured dictionary
-            results = {img["image_id"]: img for img in parsed_json_list}
-
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON Parsing Error: {e}")
-            return {"error": "Invalid JSON format received", "raw_response": response_text}
-
-
-        return results  # ✅ Now correctly structured as a dictionary
+        return results
+    except Exception as e:
+        print(f"⚠️ Unexpected Error in parse_json_responses: {e}")
+        return {}  # Return an empty dictionary instead of a list
 
 
 
-        # ------------------- STORE RESULTS IN DATABASE -------------------
-        conn, cursor = get_db_connection()
+# ------------------- AI ANALYSIS -------------------
+def analyze_images(image_paths, prompt, batch_size=1):
+    """Processes images, sends batch requests to OpenAI, and maps results using actual filenames."""
 
-        # 🔹 Ensure `image_id` exists in the response
-        if "image_id" in parsed_json:
-            image_id = parsed_json["image_id"]  # ✅ Extract actual image reference
+    try:
+        results = {}
 
-            # 🔹 Check if the image already exists in the `Images` table
-            cursor.execute("SELECT Location_ID FROM Images WHERE Image_Reference = ?", (image_id,))
-            existing_location = cursor.fetchone()
+        for i in range(0, len(image_paths), batch_size):
+            batch = image_paths[i:i + batch_size]
 
-            if existing_location:
-                location_id = existing_location[0]  # ✅ Reuse existing Location_ID
-            else:
-                # 🔹 Insert new image reference and fetch Location_ID
-                cursor.execute("INSERT INTO Images (Image_Reference) VALUES (?)", (image_id,))
-                location_id = cursor.lastrowid
+            processed_images = [
+                {"filename": os.path.basename(path), "base64": process_image(path)}
+                for path in batch if process_image(path)
+            ]
 
-            # 🔹 Extract violations correctly
-            violations = parsed_json.get("violations", [])  # ✅ Extract directly from root level
+            if not processed_images:
+                print(f"⚠️ No valid images in batch {i // batch_size + 1}")
+                continue
 
-            if violations:  # Ensure there are violations before inserting
-                for worker in violations:
-                    cursor.execute("""
-                    INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Violation_Type, Risk_Level)
-                    VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        parsed_json["timestamp"],  # ✅ Correct timestamp
-                        location_id,  # ✅ Correct location ID
-                        image_id,  # ✅ Ensure correct image reference
-                        worker["reason"],
-                        worker["risk_level"]
-                    ))
+            print(f"📸 Sending {len(processed_images)} images to OpenAI...")
 
-                conn.commit()  # ✅ Ensure changes are committed
-                print(f"✅ Data successfully inserted for {image_id}")
-            else:
-                print(f"⚠️ No violations detected for {image_id}. Skipping database insertion.")
+            response = openai.ChatCompletion.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Analyze worker safety compliance in images"},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        *[
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img['base64']}"}} 
+                            for img in processed_images
+                        ]
+                    ]}
+                ],
+                max_tokens=2000
+            )
 
-        else:
-            print("❌ Error: `image_id` missing from API response.")
+            batch_results = parse_json_responses(response.choices[0].message.content, batch)  # Pass batch image paths
+            results.update(batch_results)
 
-        conn.close()  # ✅ Ensure connection is closed properly
+            time.sleep(1)  # Prevent API rate limits
 
-
-
-        return parsed_json
+        return results
 
     except Exception as e:
-        print(f"Error processing images: {e}")
+        print(f"Error in batch processing: {e}")
         return {"error": str(e)}
+
+
+
+# ------------------- DEFINE PROMPT -------------------
+# **Worker Detection Rules**
+worker_detection = """
+        - Ignore **pedestrians, mannequins, shadows, and reflections**.
+        - Detect **all workers** in the image with a confidence score threshold of **≥ 0.9**.
+		- Do **not** assume all workers are wearing the correct gear unless clearly visible.
+        - Return **ALL** workers detected, even if safety status is uncertain.
+        - Exclude **distant workers** below 5 percentage of the image width/height.
+        """
+        
+# **Hardhat Detection Rules**
+hardhat_spec = """
+    - **Hardhats** must be strictly limited to **white, yellow, or orange**, based on predefined RGB/HSV color ranges.
+    - Do **not** classify **soft hats, beanies, monkey caps, or winter caps** as hardhats.
+    - A valid hardhat must be **rigid and worn on the head**.
+    - If a worker is **holding** a hardhat instead of wearing it, classify as **"absent"**.
+    - If a hardhat is **placed on the floor** instead of being worn, classify as **"absent"**.
+    - If **detection confidence is below 0.7**, classify as **"absent"**.
+"""
+
+
+
+# **Hi-Vis Vest Detection Rules**
+hi_vis_spec = """
+    - Detect **hi-vis vests** strictly in **yellow or orange**, based on predefined RGB/HSV color ranges.
+    - The vest must be **properly worn**—do not classify vests draped over the shoulder.
+    - If **detection confidence is below 0.7**, classify as **"absent"**.
+    - Ensure vests are not misclassified by distinguishing them from **traffic cones or other similarly colored objects**.
+"""
+
+
+
+prompt = """
+
+Analyze this construction site image and return a strict JSON response:
+
+Detect Workers based on {worker_detection}      
+Detect hardhat status based on {hardhat_spec}
+Detect Hi-vis status based on {hi_vis_spec}
+
+### Compliance Classification:
+- `"high"` → No hardhat AND no vest.
+- `"medium"` → Either hardhat OR vest missing.
+- `"compliant"` → Both hardhat AND vest present.
+- `"unknown"` → Unable to determine safety gear due to occlusion or poor visibility.
+- Provide **bounding box coordinates** for each worker in **normalized format (0-1 scale)**.
+- Extract **timestamp** from the image if present (formatted as `"YYYY-MM-DDTHH:MM:SSZ"`). If missing, return `"timestamp": "unknown"`.
+
+### Strict JSON Output Format:
+```json
+{
+    "image_id": "<image_filename>",
+    "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+    "violations": [
+    {
+        "worker_id": 1,
+        "risk_level": "high",
+        "reason": "Worker without hardhat and hi-vis vest",
+        "location": {"x": 0.25, "y": 0.40, "width": 0.1, "height": 0.2},
+        "confidence": 0.95
+    }
+    ]
+}
+```"""
+# ------------------- DATABASE INSERTION -------------------
+def insert_violations(results):
+    """Insert extracted violations into the SQLite database using real filenames and storing location details."""
+    conn, cursor = get_db_connection()
+
+    for actual_filename, data in results.items():
+        print(f"🖼️ Processing image: {actual_filename}")  # Debugging
+        print(f"🔎 Data received: {json.dumps(data, indent=2)}")  # Debugging
+
+        # Step 1: Retrieve or Create Unique Location_ID
+        cursor.execute("SELECT Location_ID FROM Locations WHERE Image_Reference = ?", (actual_filename,))
+        row = cursor.fetchone()
+
+        if row:
+            location_id = row[0]  # Existing Location_ID
+        else:
+            cursor.execute("INSERT INTO Locations (Image_Reference) VALUES (?)", (actual_filename,))
+            location_id = cursor.lastrowid  # Get the new unique Location_ID
+
+        # Step 2: Extract location details from JSON response
+        location_details = data.get("location_details", "unavailable")  # Default to "unavailable"
+
+        if "violations" in data and data["violations"]:
+            for violation in data["violations"]:
+                print(f"🚨 Inserting Violation: {violation}")  # Debugging
+                cursor.execute("""
+                INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Location_Details, Violation_Type, Risk_Level)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    data["timestamp"],  # Extracted timestamp
+                    location_id,  # Unique Location_ID per image
+                    actual_filename,  # Ensure the exact file name is stored
+                    location_details,  # Store extracted location details
+                    violation["reason"],  # Violation type
+                    violation["risk_level"]  # Risk level
+                ))
+
+    conn.commit()
+    conn.close()
+    print("✅ Data successfully inserted into the database!")
+
+
+
+
+
 
 # ------------------- PROCESS IMAGES -------------------
 if __name__ == "__main__":
-    image_files = glob.glob(os.path.join(IMAGE_FOLDER, "*.*"))  # Get list of image files
+    image_files = glob.glob(os.path.join(IMAGE_FOLDER, "*.*"))
 
     if image_files:
         print(f"🔍 Processing {len(image_files)} images...")
-        result = analyze_images(image_files)  # ✅ Pass the entire list
+        print(f"🔍 Processing {image_files} images...")
+        result = analyze_images(image_files, prompt)  # ✅ Process images        
         print(json.dumps(result, indent=2))
+
+        # Insert results into the database
+        insert_violations(result)
+
+        print("✅ Data successfully inserted into the database!")
     else:
         print("❌ No valid images found in the directory!")

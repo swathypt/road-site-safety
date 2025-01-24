@@ -1,74 +1,100 @@
 /* General Styling */
 body {
-  background-color: #f4f6f9;
+  background-color: #f8f9fa;
   font-family: "Arial", sans-serif;
+  margin: 0;
+  padding: 0;
+  height: 100vh; /* Ensure full viewport height */
 }
 
-/* Dashboard Title - Center & Bigger */
-.dashboard-title {
+/* Dashboard Container */
+.dashboard-container {
   text-align: center;
-  font-size: 2.5rem;
-  font-weight: bold;
-  color: #343a40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  padding: 20px;
+  height: 100%;
 }
 
-/* Main Title */
-h1 {
+/* Title Styling */
+.dashboard-title {
   font-size: 2rem;
   font-weight: bold;
-  color: #343a40;
+  color: #333;
+  padding-bottom: 15px;
 }
 
-/* Tabs - Ensure they sit side by side */
-.nav-container {
+/* 🔹 Dashboard Layout */
+.dashboard-layout {
+  display: flex;
+  gap: 20px;
+  align-items: stretch; /* Ensures equal height */
+  justify-content: center;
+  height: 100%;
+}
+
+/* 🔹 Grid 1: Filters */
+.grid1 {
+  flex: 1;
+  max-width: 20%;
+  display: flex;
+  flex-direction: column;
+}
+
+.grid1 .card {
+  flex-grow: 1; /* Allows it to expand to match Grid 2 */
+  height: 100%;
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  text-align: left;
+}
+
+/* 🔹 Grid 2: Dashboard Section */
+.grid2 {
+  flex: 3;
+  max-width: 75%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 🔹 Grid Layout inside Grid 2 */
+.grid-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  flex-grow: 1; /* Ensures it expands like Grid 1 */
+}
+
+/* 🔹 Individual Grid Boxes */
+.grid-box {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: center;
-  gap: 10px;
-  margin-bottom: 20px;
+  align-items: center;
+  min-height: 150px;
+  text-align: center;
 }
 
-.nav-pills .nav-link {
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: #007bff;
-  padding: 10px 20px;
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-.nav-pills .nav-link.active {
-  background-color: #007bff;
-  color: white;
-}
+/* 🟢 Responsive Fix */
+@media (max-width: 992px) {
+  .dashboard-layout {
+    flex-direction: column;
+    align-items: center;
+  }
 
-/* Data Table */
-.table th, .table td {
-  padding: 12px;
-  vertical-align: middle;
-}
-.table-dark th {
-  background-color: #343a40;
-  color: white;
-}
-.risk-level.compliant {
-  color: #28a745;
-  font-weight: bold;
-}
-.risk-level.medium {
-  color: #ffc107;
-  font-weight: bold;
-}
-.risk-level.high {
-  color: #dc3545;
-  font-weight: bold;
-}
+  .grid1 {
+    max-width: 100%;
+    margin-bottom: 15px;
+  }
 
-/* Summary Section */
-.summary-section {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 20px;
+  .grid2 {
+    max-width: 100%;
+  }
+
+  .grid-container {
+    grid-template-columns: 1fr;
+  }
 }

@@ -25,20 +25,29 @@ def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # Table for violations
+    # Table for violations (store location details)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Violations (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Timestamp TEXT,
-        Location_ID INTEGER DEFAULT 0,
+        Location_ID INTEGER,
         Image_Reference TEXT,
+        Location_Details TEXT,  -- NEW COLUMN to store location info
         Violation_Type TEXT,
         Risk_Level TEXT
-        );
-        """)
+    );
+    """)
+
+    # Table to track unique locations
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Locations (
+        Location_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Image_Reference TEXT UNIQUE
+    );
+    """)
 
     conn.commit()
     return conn, cursor
-
 
 # ------------------- IMAGE PROCESSING -------------------
 def is_valid_image(file_path):
@@ -67,28 +76,55 @@ def process_image(image_path):
         print(f"Error processing {image_path}: {e}")
         return None
 
+def parse_json_responses(response_text, image_paths):
+    """Parses JSON responses from OpenAI and maps results to actual filenames."""
+    clean_response = re.sub(r"```json\n|\n```", "", response_text).strip()
+    json_objects = re.split(r'\njson\n', clean_response)
+
+    results = {}
+
+    try:
+        for image_path, obj_str in zip(image_paths, json_objects):  # Match each JSON with an image
+            try:
+                parsed_data = json.loads(obj_str)  # Ensure correct JSON format
+
+                # If OpenAI response is a list of JSON objects instead of a single dictionary
+                if isinstance(parsed_data, list):  
+                    merged_data = {"image_id": os.path.basename(image_path), "violations": []}
+
+                    # Extract data from each JSON object in the list
+                    for obj in parsed_data:
+                        merged_data["timestamp"] = obj.get("timestamp", "unknown")
+                        merged_data["location_details"] = obj.get("Location details", "unavailable")
+
+                        if "violations" in obj and isinstance(obj["violations"], list):
+                            merged_data["violations"].extend(obj["violations"])  # Merge violations
+
+                    results[merged_data["image_id"]] = merged_data  # Store in results dictionary
+
+                elif isinstance(parsed_data, dict):  # Standard single JSON object
+                    actual_filename = os.path.basename(image_path)  
+                    parsed_data["image_id"] = actual_filename  # Overwrite OpenAI's image_id
+                    results[actual_filename] = parsed_data  # Store results under actual filename
+
+                else:
+                    print(f"⚠️ Unexpected JSON format for {image_path}: {parsed_data}")
+                    continue  # Skip malformed responses
+
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON Parsing Error for {image_path}: {e}")
+                continue  # Skip errors and continue processing
+
+        return results
+    except Exception as e:
+        print(f"⚠️ Unexpected Error in parse_json_responses: {e}")
+        return {}  # Return an empty dictionary instead of a list
+
+
 
 # ------------------- AI ANALYSIS -------------------
-def analyze_images(image_paths, prompt, batch_size=2):
-    """Processes multiple images, sends batch request to OpenAI, and stores violations in SQLite."""
-
-    def parse_json_responses(response_text):
-        """Cleans OpenAI response and extracts JSON objects."""
-        clean_response = re.sub(r"```json\n|\n```", "", response_text).strip()
-        # Handle multiple JSON blocks, split using `json` keyword separators
-        json_objects = re.split(r'\njson\n', clean_response)
-
-        parsed_results = {}
-        try:
-            for obj_str in json_objects:
-                parsed_obj = json.loads(obj_str)
-                image_id = parsed_obj.get("image_id", "unknown")
-                parsed_results[image_id] = parsed_obj
-            
-            return parsed_results
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON Parsing Error: {e}")
-            return {"error": "Invalid JSON format", "raw_response": clean_response}
+def analyze_images(image_paths, prompt, batch_size=1):
+    """Processes images, sends batch requests to OpenAI, and maps results using actual filenames."""
 
     try:
         results = {}
@@ -119,10 +155,10 @@ def analyze_images(image_paths, prompt, batch_size=2):
                         ]
                     ]}
                 ],
-                max_tokens=800
+                max_tokens=2000
             )
 
-            batch_results = parse_json_responses(response.choices[0].message.content)
+            batch_results = parse_json_responses(response.choices[0].message.content, batch)  # Pass batch image paths
             results.update(batch_results)
 
             time.sleep(1)  # Prevent API rate limits
@@ -132,6 +168,7 @@ def analyze_images(image_paths, prompt, batch_size=2):
     except Exception as e:
         print(f"Error in batch processing: {e}")
         return {"error": str(e)}
+
 
 
 # ------------------- DEFINE PROMPT -------------------
@@ -152,6 +189,7 @@ Analyze this construction site image and return a strict JSON response:
 - `"unknown"` → Unable to determine safety gear due to occlusion or poor visibility.
 - Provide **bounding box coordinates** for each worker in **normalized format (0-1 scale)**.
 - Extract **timestamp** from the image if present (formatted as `"YYYY-MM-DDTHH:MM:SSZ"`). If missing, return `"timestamp": "unknown"`.
+- Extract **Location details** from the image if present (example : "Compond Section"). If missing, return `"Location details": "unavailable"`.
 
 ### Strict JSON Output Format:
 ```json
@@ -170,30 +208,38 @@ Analyze this construction site image and return a strict JSON response:
 }
 """
 # ------------------- DATABASE INSERTION -------------------
-import os  # Ensure os module is imported
-
 def insert_violations(results):
-    """Insert extracted violations into the SQLite database, using 0 for Location_ID."""
+    """Insert extracted violations into the SQLite database using real filenames and storing location details."""
     conn, cursor = get_db_connection()
 
-    for image_id, data in results.items():
-        # Ensure Image_Reference has the correct file extension
-        actual_filename = next((file for file in os.listdir(IMAGE_FOLDER) if file.startswith(image_id)), image_id)
-        
+    for actual_filename, data in results.items():
         print(f"🖼️ Processing image: {actual_filename}")  # Debugging
         print(f"🔎 Data received: {json.dumps(data, indent=2)}")  # Debugging
 
+        # Step 1: Retrieve or Create Unique Location_ID
+        cursor.execute("SELECT Location_ID FROM Locations WHERE Image_Reference = ?", (actual_filename,))
+        row = cursor.fetchone()
+
+        if row:
+            location_id = row[0]  # Existing Location_ID
+        else:
+            cursor.execute("INSERT INTO Locations (Image_Reference) VALUES (?)", (actual_filename,))
+            location_id = cursor.lastrowid  # Get the new unique Location_ID
+
+        # Step 2: Extract location details from JSON response
+        location_details = data.get("location_details", "unavailable")  # Default to "unavailable"
+
         if "violations" in data and data["violations"]:
-            # **Insert Violations for this Image**
             for violation in data["violations"]:
                 print(f"🚨 Inserting Violation: {violation}")  # Debugging
                 cursor.execute("""
-                INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Violation_Type, Risk_Level)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Location_Details, Violation_Type, Risk_Level)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    data["timestamp"],  # Timestamp extracted by model
-                    0,  # Set default Location_ID to 0
-                    actual_filename,  # Corrected image filename with extension
+                    data["timestamp"],  # Extracted timestamp
+                    location_id,  # Unique Location_ID per image
+                    actual_filename,  # Ensure the exact file name is stored
+                    location_details,  # Store extracted location details
                     violation["reason"],  # Violation type
                     violation["risk_level"]  # Risk level
                 ))
@@ -214,7 +260,7 @@ if __name__ == "__main__":
     if image_files:
         print(f"🔍 Processing {len(image_files)} images...")
         print(f"🔍 Processing {image_files} images...")
-        result = analyze_images(image_files, prompt)  # ✅ Process images
+        result = analyze_images(image_files, prompt)  # ✅ Process images        
         print(json.dumps(result, indent=2))
 
         # Insert results into the database
