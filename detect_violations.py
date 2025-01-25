@@ -25,29 +25,33 @@ def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
-    # Table for violations (store location details)
+    # 🔹 New table for Sites
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Sites (
+        Site_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Site_Name TEXT,
+        Location_Details TEXT 
+    );
+    """)
+
+    # 🔹 Modified Violations table to reference Sites
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Violations (
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Timestamp TEXT,
-        Location_ID INTEGER,
+        Site_ID INTEGER,  -- References Sites table
         Image_Reference TEXT,
-        Location_Details TEXT,  -- NEW COLUMN to store location info
         Violation_Type TEXT,
-        Risk_Level TEXT
-    );
-    """)
-
-    # Table to track unique locations
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS Locations (
-        Location_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-        Image_Reference TEXT UNIQUE
+        Risk_Level TEXT,
+        FOREIGN KEY (Site_ID) REFERENCES Sites (Site_ID)
     );
     """)
 
     conn.commit()
     return conn, cursor
+
+
+
 
 # ------------------- IMAGE PROCESSING -------------------
 def is_valid_image(file_path):
@@ -211,6 +215,14 @@ Detect Workers based on {worker_detection}
 Detect hardhat status based on {hardhat_spec}
 Detect Hi-vis status based on {hi_vis_spec}
 
+### **Location Tracking Rules**
+- **Identify any visible location details** (e.g., "Camera 01", "Trig Road").
+- If a location is found, include it in `"location_details"`.
+- If no location is found, return `"location_details": "unavailable"`.
+- **Infer a site name** based on previously detected locations. If `"Camera 01"` appears in multiple images, assign it to the same `"site_name"`.
+- If no site can be inferred, return `"site_name": "unknown"`.
+
+
 ### Compliance Classification:
 - `"high"` → No hardhat AND no vest.
 - `"medium"` → Either hardhat OR vest missing.
@@ -218,6 +230,7 @@ Detect Hi-vis status based on {hi_vis_spec}
 - `"unknown"` → Unable to determine safety gear due to occlusion or poor visibility.
 - Provide **bounding box coordinates** for each worker in **normalized format (0-1 scale)**.
 - Extract **timestamp** from the image if present (formatted as `"YYYY-MM-DDTHH:MM:SSZ"`). If missing, return `"timestamp": "unknown"`.
+- Ensure **confidence scores** are included for each detection.
 
 ### Strict JSON Output Format:
 ```json
@@ -235,50 +248,51 @@ Detect Hi-vis status based on {hi_vis_spec}
     ]
 }
 ```"""
+
+
+
+
 # ------------------- DATABASE INSERTION -------------------
 def insert_violations(results):
-    """Insert extracted violations into the SQLite database using real filenames and storing location details."""
+    """Insert extracted violations into the SQLite database while ensuring consistent site tracking."""
     conn, cursor = get_db_connection()
 
     for actual_filename, data in results.items():
-        print(f"🖼️ Processing image: {actual_filename}")  # Debugging
-        print(f"🔎 Data received: {json.dumps(data, indent=2)}")  # Debugging
+        print(f"🖼️ Processing image: {actual_filename}")  
+        print(f"🔎 Data received: {json.dumps(data, indent=2)}")  
 
-        # Step 1: Retrieve or Create Unique Location_ID
-        cursor.execute("SELECT Location_ID FROM Locations WHERE Image_Reference = ?", (actual_filename,))
+        site_name = data.get("site_name", "unknown")  # Extract inferred site
+        location_details = data.get("location_details", "unavailable")  # Extract camera details
+
+        # 🔹 Step 1: Check if site already exists
+        cursor.execute("SELECT Site_ID FROM Sites WHERE Location_Details = ?", (location_details,))
         row = cursor.fetchone()
 
         if row:
-            location_id = row[0]  # Existing Location_ID
+            site_id = row[0]  # Existing Site_ID
         else:
-            cursor.execute("INSERT INTO Locations (Image_Reference) VALUES (?)", (actual_filename,))
-            location_id = cursor.lastrowid  # Get the new unique Location_ID
+            # 🔹 Step 2: Insert new site and get Site_ID
+            cursor.execute("INSERT INTO Sites (Site_Name, Location_Details) VALUES (?, ?)", (site_name, location_details))
+            site_id = cursor.lastrowid  # Get new Site_ID
 
-        # Step 2: Extract location details from JSON response
-        location_details = data.get("location_details", "unavailable")  # Default to "unavailable"
-
+        # 🔹 Step 3: Insert violations linked to Site_ID
         if "violations" in data and data["violations"]:
             for violation in data["violations"]:
-                print(f"🚨 Inserting Violation: {violation}")  # Debugging
+                print(f"🚨 Inserting Violation: {violation}")  
                 cursor.execute("""
-                INSERT INTO Violations (Timestamp, Location_ID, Image_Reference, Location_Details, Violation_Type, Risk_Level)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO Violations (Timestamp, Site_ID, Image_Reference, Violation_Type, Risk_Level)
+                VALUES (?, ?, ?, ?, ?)
                 """, (
                     data["timestamp"],  # Extracted timestamp
-                    location_id,  # Unique Location_ID per image
-                    actual_filename,  # Ensure the exact file name is stored
-                    location_details,  # Store extracted location details
-                    violation["reason"],  # Violation type
+                    site_id,  # Linked to Site_ID
+                    actual_filename,  # Exact image filename
+                    violation["reason"],  # Violation description
                     violation["risk_level"]  # Risk level
                 ))
 
     conn.commit()
     conn.close()
     print("✅ Data successfully inserted into the database!")
-
-
-
-
 
 
 # ------------------- PROCESS IMAGES -------------------
