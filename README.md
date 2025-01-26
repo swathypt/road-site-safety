@@ -28,7 +28,7 @@ The **Road Site Safety Compliance System** is an AI-driven prototype that automa
 ## 🛠️ Installation & Setup
 ### 1️⃣ Clone the Repository
 ```sh
- git clone https://github.com/your-repo/road-site-safety-compliance.git
+ git clone https://github.com/swathypt/road-site-safety.git
  cd road-site-safety-compliance
 ```
 ### 2️⃣ Backend Setup
