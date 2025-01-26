@@ -62,7 +62,7 @@ def get_high_risk_areas():
     cursor = conn.cursor()
 
     query = """
-    SELECT s.Site_ID, s.Site_Name, s.Location_Details,
+    SELECT s.Site_ID, s.Site_Name,
            SUM(CASE WHEN v.Risk_Level = 'compliant' THEN 1 ELSE 0 END) AS compliant,
            SUM(CASE WHEN v.Risk_Level = 'medium' THEN 1 ELSE 0 END) AS medium,
            SUM(CASE WHEN v.Risk_Level = 'high' THEN 1 ELSE 0 END) AS high,
@@ -93,7 +93,6 @@ def get_high_risk_areas():
         results.append({
             "Site_ID": site["Site_ID"],
             "Site_Name": site["Site_Name"],
-            "Location_Details": site["Location_Details"],
             "Total_Violations": total_violations,
             "Risk_Breakdown": {
                 "compliant": compliant,

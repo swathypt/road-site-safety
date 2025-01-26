@@ -1,3 +1,4 @@
+// importing required modules
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Card, Form } from "react-bootstrap";
@@ -58,70 +59,80 @@ const ViolationBarChart = ({ violations }) => {
 };
 
 const SiteComplianceChart = ({ violations }) => {
-  const [siteStats, setSiteStats] = useState({ labels: [], datasets: [] });
+  const [complianceScores, setComplianceScores] = useState([]);
 
   useEffect(() => {
     if (!violations || violations.length === 0) {
-      setSiteStats({ labels: [], datasets: [] });
+      setComplianceScores([]);
       return;
     }
 
-    // 1. Group violations by Site_Name (or Location_ID)
-    const breakdown = {}; 
+    // Define weights for compliance scoring
+    const WEIGHTS = { compliant: 3, medium: 2, high: 1 };
+    const MAX_WEIGHT = WEIGHTS.compliant; // Normalization factor
+
+    // Compute compliance scores for each site
+    const siteData = {};
     violations.forEach((v) => {
-      const siteName = v.Site_Name; 
-      // normalize risk to lower-case if needed
-      const riskLevel = v.Risk_Level.toLowerCase(); // "compliant", "medium", or "high"
+      const siteName = v.Site_Name;
+      const riskLevel = v.Risk_Level.toLowerCase();
 
-      // If we haven't tracked this site yet, initialize
-      if (!breakdown[siteName]) {
-        breakdown[siteName] = { compliant: 0, medium: 0, high: 0 };
+      if (!siteData[siteName]) {
+        siteData[siteName] = { high: 0, medium: 0, compliant: 0 };
       }
-      // Increment the appropriate risk level count
-      if (breakdown[siteName][riskLevel] !== undefined) {
-        breakdown[siteName][riskLevel] += 1;
+
+      if (WEIGHTS[riskLevel] !== undefined) {
+        siteData[siteName][riskLevel] += 1;
       }
     });
 
-    // 2. Build arrays for the bar chart
-    const labels = Object.keys(breakdown); // e.g. ["Camera 01", "Spedding Road", ...]
-    const compliantData = labels.map((site) => breakdown[site].compliant);
-    const mediumData = labels.map((site) => breakdown[site].medium);
-    const highData = labels.map((site) => breakdown[site].high);
+    // Convert data into an array of { site, score }
+    const calculatedScores = Object.keys(siteData).map((site) => {
+      const counts = siteData[site];
+      const totalInstances = counts.high + counts.medium + counts.compliant;
 
-    // 3. Prepare chart data
-    setSiteStats({
-      labels,
-      datasets: [
-        {
-          label: "Compliant",
-          data: compliantData,
-          backgroundColor: "#2ECC71",
-        },
-        {
-          label: "Medium Risk",
-          data: mediumData,
-          backgroundColor: "#F1C40F",
-        },
-        {
-          label: "High Risk",
-          data: highData,
-          backgroundColor: "#E74C3C",
-        },
-      ],
+      if (totalInstances === 0) return { site, score: 0 };
+
+      const weightedSum =
+        counts.compliant * WEIGHTS.compliant +
+        counts.medium * WEIGHTS.medium +
+        counts.high * WEIGHTS.high;
+
+      const complianceScore = (weightedSum / (totalInstances * MAX_WEIGHT)) * 100;
+      return { site, score: parseFloat(complianceScore.toFixed(2)) };
     });
+
+    setComplianceScores(calculatedScores);
   }, [violations]);
 
   return (
     <div className="grid-box">
       <Card className="shadow p-3">
-        <h4>📊 Site Compliance (from Violations)</h4>
-        <Bar data={siteStats} />
+        <h4>📊 Site Compliance Scores</h4>
+        {complianceScores.length > 0 ? (
+          <table className="styled-table">
+            <thead>
+              <tr>
+                <th>Site Name</th>
+                <th>Compliance Score (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {complianceScores.map((entry, index) => (
+                <tr key={index}>
+                  <td>{entry.site}</td>
+                  <td>{entry.score}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p>No data available</p>
+        )}
       </Card>
     </div>
   );
 };
-
 
 const RiskDistributionPieChart = ({ violations }) => {
   // State to hold counts for each risk level
@@ -226,9 +237,6 @@ const HistoricalTrendLineChart = ({ violations }) => {
     </div>
   );
 };
-
-
-
 
 function App() {
   const [violations, setViolations] = useState([]);
