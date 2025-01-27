@@ -117,7 +117,46 @@ curl -X GET http://127.0.0.1:5000/violation_trends
 1. **Structured Formatting**: Ensured input images were correctly formatted and labeled.
 2. **Incremental Refinement**: Adjusted prompt wording to improve classification accuracy.
 3. **Handling Edge Cases**: Designed prompts to recognize workers **holding PPE** rather than wearing it.
-4. **Response Filtering**: Implemented logic to discard vague responses like *"I'm sorry, I can't help with that."*
+
+### **Best Practices for Prompt Engineering**
+- **Modular Prompt Design**: Store rules in separate variables and reference them dynamically.
+- **Explicit Instructions**: Define clear rules for worker detection, hardhat classification, and compliance checks.
+- **Error Handling Strategies**: Account for possible misclassifications and missing data.
+- **Testing & Iteration**: Continuously refine prompts based on real-world results and feedback.
+
+### **Prompt Rules Used**
+#### **Worker Detection Rules**
+```
+- Only classify an individual as a construction worker if:
+  1. They appear to be actively engaged in construction-related tasks.
+  2. Detection confidence is ≥ 0.7.
+- Exclude pedestrians, mannequins, shadows, and reflections.
+- Exclude distant workers occupying less than 2% of the image width or height.
+- Provide a class_reasoning for classification decisions.
+```
+
+#### **Hardhat Detection Rules**
+```
+- Hardhats must be strictly white, yellow, or orange.
+- Do not classify soft hats, beanies, or winter caps as hardhats.
+- If a worker is holding a hardhat instead of wearing it, classify as "not wearing hardhat".
+- If detection confidence is below 0.7, classify as "absent".
+```
+
+#### **Hi-Vis Vest Detection Rules**
+```
+- Detect hi-vis vests strictly in yellow or orange.
+- The vest must be properly worn—do not classify vests draped over the shoulder.
+- If detection confidence is below 0.7, classify as "absent".
+```
+
+#### **Compliance Classification**
+```
+- "high" → No hardhat AND no vest.
+- "medium" → Either hardhat OR vest missing.
+- "compliant" → Both hardhat AND vest present.
+- "unknown" → Unable to determine due to occlusion or poor visibility.
+```
 
 ---
 
@@ -127,3 +166,5 @@ curl -X GET http://127.0.0.1:5000/violation_trends
 🔹 Implement **real-time alerts** for non-compliance  
 
 ---
+
+
