@@ -1,4 +1,4 @@
-# **PPE Compliance Detection System 💪**  
+# **PPE Compliance Detection System 🚧**  
 
 **Automated monitoring of PPE compliance using AI & Computer Vision.**  
 
@@ -15,7 +15,7 @@ It uses **computer vision** to analyze images, identify compliance violations, a
 
 ---
 
-## **🗂️ Directory Structure**
+## **🗂 Directory Structure**
 ```
 road-site-safety/
 │── backend/          # Flask API & image processing scripts
@@ -30,7 +30,7 @@ road-site-safety/
 
 ---
 
-## **⚙️ Installation & Setup**
+## **⚙️ Setup Instructions**
 ### **1️⃣ Clone the Repository**
 ```bash
 git clone https://github.com/your-repo/road-site-safety.git
@@ -67,19 +67,63 @@ npm start
 
 ---
 
-## **🚀 How It Works**
-1. **Image Processing** – Captures images from construction sites.  
-2. **AI Analysis** – OpenAI Vision API detects PPE compliance.  
-3. **Database Storage** – Results are stored in SQLite.  
-4. **Backend API** – Flask serves data via REST API.  
-5. **Dashboard** – React frontend visualizes violations, trends, and compliance rates.  
+## **📡 API Documentation**
+### **Endpoints**
+#### **1️⃣ GET /violations**
+Retrieves all recorded PPE violations.
+```bash
+curl -X GET http://127.0.0.1:5000/violations
+```
+#### **2️⃣ GET /high_risk_areas**
+Fetches locations with the highest non-compliance levels.
+```bash
+curl -X GET http://127.0.0.1:5000/high_risk_areas
+```
+#### **3️⃣ GET /violation_trends**
+Analyzes violation trends over different time periods.
+```bash
+curl -X GET http://127.0.0.1:5000/violation_trends
+```
 
 ---
 
-## **🛠️ Testing**
-To run unit tests:
-```bash
-cd unit_tests
-pytest test_image_processing.py
+## **🛠️ System Architecture Overview**
+```
++--------------------+
+|  Image Capture    |
++--------------------+
+        ↓
++--------------------+
+|  AI Processing    |  -> OpenAI Vision API analyzes images
++--------------------+
+        ↓
++--------------------+
+|  Data Storage     |  -> SQLite stores structured data
++--------------------+
+        ↓
++--------------------+
+|  Backend API      |  -> Flask API serves data to frontend
++--------------------+
+        ↓
++--------------------+
+|  Dashboard UI     |  -> React visualizes insights
++--------------------+
 ```
 
+---
+
+## **🎯 Prompt Engineering Approach**
+### **Optimizing Prompts for OpenAI Vision API**
+1. **Structured Formatting**: Ensured input images were correctly formatted and labeled.
+2. **Incremental Refinement**: Adjusted prompt wording to improve classification accuracy.
+3. **Handling Edge Cases**: Designed prompts to recognize workers **holding PPE** rather than wearing it.
+4. **Response Filtering**: Implemented logic to discard vague responses like *"I'm sorry, I can't help with that."*
+
+---
+
+## **📌 Future Improvements**
+🔹 Enhance **AI model reliability** (consider LLaMA/Ollama for fine-tuning)  
+🔹 Improve **worker recognition** for better accuracy  
+🔹 Implement **real-time alerts** for non-compliance  
+
+---
