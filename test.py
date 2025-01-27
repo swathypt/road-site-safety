@@ -50,12 +50,26 @@ def get_db_connection():
 
 # ------------------- IMAGE PROCESSING -------------------
 def is_valid_image(file_path):
-    """Check if the file is a valid image."""
+    """Check if file is a valid image with allowed format and size."""
+    if not os.path.isfile(file_path):
+        print(f"❌ File does not exist: {file_path}")
+        return False
+
+    if os.path.getsize(file_path) > MAX_FILE_SIZE:
+        print(f"❌ File size exceeds limit: {file_path}")
+        return False
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        print(f"❌ Invalid file format: {file_path}")
+        return False
+
     try:
         with Image.open(file_path) as img:
-            img.verify()
+            img.verify()  # Ensure file is an image
         return True
-    except:
+    except Exception as e:
+        print(f"❌ Corrupt image file: {file_path}, Error: {e}")
         return False
 
 def process_image(image_path):
@@ -267,6 +281,7 @@ if a worker is detected:
     ### **Site Tracking Rules**
     - Extract **visible site name** from the image if present (e.g., "Trig Road","Compound Section" or "Camera 01").
     - Don't infer Device No as site name.
+    - Correct any obvious spelling errors in the site name.
     - If no site can be inferred, return "site_name": "unknown".
 
     ### Compliance Classification:
@@ -349,6 +364,7 @@ def insert_violations(results):
 # ------------------- PROCESS IMAGES -------------------
 if __name__ == "__main__":
     VALID_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".gif")
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB limit
 
     image_files = [
         f for f in glob.glob(os.path.join(IMAGE_FOLDER, "*.*"))
