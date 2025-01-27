@@ -1,55 +1,85 @@
-🚧 Road Site Safety Monitoring System📌 Project OverviewThis project is an AI-powered PPE Compliance Monitoring System that detects safety violations in construction sites using computer vision and deep learning. It consists of a Flask backend for image processing and a React frontend for real-time dashboards.
-📂 Directory Structure📂 road-site-safety
-│── 📂 .git/                # Git repository metadata
-│── 📄 README.md            # Project documentation
-│── 📄 app.py               # Flask backend
-│── 📄 config.yaml          # Configuration settings
-│── 📂 dataset/             # Input dataset storage
-│── 📄 detect_violations.py # Image processing & AI detection
-│── 📂 images/              # Processed image storage
-│── 📂 output/              # Processed outputs
-│── 📂 ppe-dashboard/       # React frontend (if applicable)
-│── 📄 safety_system.log    # Logs for debugging
-│── 📄 server.log           # Server activity logs
-│── 📄 site_violations.db   # SQLite database for violations
-│── 📄 test.py              # Test script for validation
-│── 📂 unit_tests/          # Unit testing scripts
-│── 📂 venv/                # Virtual environment (ignored in Git)🚀 Setup Instructions🛠 PrerequisitesEnsure you have the following installed:
-Python 3.8+
-Node.js & npm
-SQLite
-Git
-🔧 Backend Setupcd road-site-safety
+# **PPE Compliance Detection System 💪**  
+
+**Automated monitoring of PPE compliance using AI & Computer Vision.**  
+
+## **📌 Project Overview**  
+This project automates the **detection of PPE (Personal Protective Equipment) compliance** at construction sites.  
+It uses **computer vision** to analyze images, identify compliance violations, and present structured insights via an interactive dashboard.  
+
+### **✨ Key Features**  
+✅ **AI-powered PPE detection** using OpenAI Vision API  
+✅ **Flask backend** for data processing and API handling  
+✅ **SQLite database** for structured violation tracking  
+✅ **React-based dashboard** for visualization and analytics  
+✅ **Logging, error handling, and unit testing** for robustness  
+
+---
+
+## **🗂️ Directory Structure**
+```
+road-site-safety/
+│── backend/          # Flask API & image processing scripts
+│── ppe-dashboard/    # React frontend for visualization
+│── unit_tests/       # Unit tests for image processing & API endpoints
+│── images/           # Stores input images for testing
+│── venv/             # Python virtual environment (ignored in Git)
+│── site_violations.db # SQLite database storing violations
+│── .gitignore        # Git ignored files (logs, virtual env, etc.)
+│── README.md         # Project documentation (this file)
+```
+
+---
+
+## **⚙️ Installation & Setup**
+### **1️⃣ Clone the Repository**
+```bash
+git clone https://github.com/your-repo/road-site-safety.git
+cd road-site-safety
+```
+
+### **2️⃣ Set Up Virtual Environment**
+```bash
 python3 -m venv venv
-source venv/bin/activate  # (On Windows use `venv\Scripts\activate`)
-pip install -r requirements.txt
-python app.pyBackend should now be running on http://127.0.0.1:5000/
+source venv/bin/activate  # On macOS/Linux
+venv\Scripts\activate     # On Windows
+```
 
-🎨 Frontend Setupcd ppe-dashboard
+### **3️⃣ Install Dependencies**
+```bash
+pip install -r backend/requirements.txt
+cd ppe-dashboard
 npm install
-npm startFrontend should now be running on http://localhost:3000/
+```
 
-📡 API DocumentationSee docs/API_documentation.md for complete API endpoints and usage.
-Example API Calls:
-GET /violations → Fetch all safety violations.
-GET /high_risk_areas → Retrieve high-risk locations.
-GET /violation_trends → Analyze violation trends over time.
+### **4️⃣ Run the Flask Backend**
+```bash
+cd backend
+python app.py
+```
+*The backend will be available at:* `http://127.0.0.1:5000/`
 
-🏗 System Architecture
-The system consists of:
-React Frontend → User-friendly dashboard
-Flask Backend → Image processing & API server
-SQLite Database → Stores compliance violations
-OpenAI API → Processes images for PPE detection
+### **5️⃣ Start the React Dashboard**
+```bash
+cd ppe-dashboard
+npm start
+```
+*The dashboard will be accessible at:* `http://localhost:3000/`
 
-🎯 Prompt Engineering ApproachWe utilize OpenAI’s GPT-4o for analyzing safety violations. The prompt is optimized for:
-✅ Detecting workers vs pedestrians
-✅ Identifying PPE compliance (hardhat, vest)
-✅ Classifying risk levels
-See docs/prompt_engineering.md for full details.
+---
 
-🏁 Future Enhancements✅ Deploy on AWS/GCP
-✅ Automate CI/CD with GitHub Actions
-✅ Enhance AI model with custom dataset
+## **🚀 How It Works**
+1. **Image Processing** – Captures images from construction sites.  
+2. **AI Analysis** – OpenAI Vision API detects PPE compliance.  
+3. **Database Storage** – Results are stored in SQLite.  
+4. **Backend API** – Flask serves data via REST API.  
+5. **Dashboard** – React frontend visualizes violations, trends, and compliance rates.  
 
-💡 For any issues, open a GitHub issue or contact swathypt@gmail.com
+---
+
+## **🛠️ Testing**
+To run unit tests:
+```bash
+cd unit_tests
+pytest test_image_processing.py
+```
+
