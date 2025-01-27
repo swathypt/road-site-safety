@@ -15,8 +15,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
 # Define the image folder path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "site_violations.db")
 IMAGE_FOLDER = "images"
-DB_FILE = "site_violations.db"
+#DB_FILE = "site_violations.db"
 
 # ------------------- DATABASE SETUP -------------------
 def get_db_connection():
@@ -250,8 +252,8 @@ hardhat_spec = """
     - **Hardhats** must be strictly limited to **white, yellow, or orange**, based on predefined RGB/HSV color ranges.
     - Do **not** classify **soft hats, beanies, monkey caps, or winter caps** as hardhats.
     - A valid hardhat must be **rigid and worn on the head**.
-    - If a worker is **holding** a hardhat instead of wearing it, classify as **"absent"**.
-    - If a hardhat is **placed on the floor** instead of being worn, classify as **"absent"**.
+    - If a worker is **holding** a hardhat instead of wearing it, classify as **"not wearing hardhat"**.
+    - If a hardhat is **placed on the floor** instead of being worn, classify as **"not wearing hardhat"**.
     - If **detection confidence is below 0.7**, classify as **"absent"**.
 """
 

@@ -17,6 +17,7 @@ import { Line } from "react-chartjs-2";
 import { format } from "date-fns";
 
 
+
 // Register required Chart.js elements
 ChartJS.register(ArcElement, Tooltip, Legend, LineElement, PointElement, CategoryScale, LinearScale);
 
@@ -300,7 +301,7 @@ function App() {
     { Header: "Image", accessor: "Image_Reference", 
       Cell: ({ value }) => (
         <button 
-          onClick={() => window.open(`http://127.0.0.1:5000/images/${value}`, '_blank')}
+          onClick={() => window.open(`http://127.0.0.1:5000/backend/images/${value}`, '_blank')}
           className="preview-btn">
           Preview
         </button>

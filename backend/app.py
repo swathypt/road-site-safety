@@ -9,8 +9,9 @@ import os
 # Initialize Flask App
 app = Flask(__name__)
 CORS(app)
-DB_FILE = "site_violations.db"
-IMAGE_FOLDER = os.path.join(os.getcwd(), "images")  # Ensure absolute path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "site_violations.db")
+IMAGE_FOLDER = os.path.join(BASE_DIR, "../images") 
 
 # Configure Logging
 logging.basicConfig(
@@ -39,7 +40,7 @@ def home():
     return "Flask API is running. Use /violations, /high_risk_areas, /violation_trends, or /compliance_rates to fetch data."
 
 # Serve Images Safely
-@app.route('/images/<path:filename>')
+@app.route('/backend/images/<path:filename>')
 def serve_image(filename):
     try:
         return send_from_directory(IMAGE_FOLDER, filename)
@@ -188,10 +189,14 @@ def get_violation_trends():
         
         for violation in violations:
             timestamp = violation["Timestamp"]
-            risk_level = violation["Risk_Level"].lower() if violation["Risk_Level"] else "unknown"
-            
-            if risk_level not in ["compliant", "medium", "high"]:
-                risk_level = "unknown"
+            risk_level = violation["Risk_Level"]
+            if risk_level:
+                risk_level = risk_level.lower()
+                if risk_level not in ["compliant", "medium", "high"]:
+                    continue  # Skip invalid risk levels
+            else:
+                continue  # Skip rows where Risk_Level is missing
+
             
             try:
                 hour = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").hour
